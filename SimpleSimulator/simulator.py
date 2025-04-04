@@ -1,230 +1,110 @@
+# Importing necessary libraries for file handling and system operations
 import sys
-import os
 
-def sign_extend(value, bits):
-    """Sign extend a value with given number of bits"""
-    sign_bit = 1 << (bits - 1)
-    return (value & (sign_bit - 1)) - (value & sign_bit)
+# Defining the opcode mappings for different instruction types
+op_code_r = {"add": "0110011", "sub": "0110011", "slt": "0110011", "srl": "0110011", "and": "0110011", "or": "0110011"}
+op_code_i = {"lw": "0000011", "addi": "0010011", "jalr": "1100111"}
+op_code_s = {"sw": "0100011"}
+op_code_b = {"beq": "1100011", "bne": "1100011"}
+op_code_j = {"jal": "1101111"}
 
+# Initializing registers with their binary representations and default values
+registers = {"00000": 0, "00001": 0, "00010": 380, "00011": 0, "00100": 0, "00101": 0, "00110": 0, "00111": 0, "01000": 0, "01001": 0, "01010": 0, "01011": 0, "01100": 0, "01101": 0, "01110": 0, "01111": 0, "10000": 0, "10001": 0, "10010": 0, "10011": 0, "10100": 0, "10101": 0, "10110": 0, "10111": 0, "11000": 0, "11001": 0, "11010": 0, "11011": 0, "11100": 0, "11101": 0, "11110": 0, "11111": 0}
 
-def initialize_simulator():
-    """Initialize simulator state"""
-    # Registers x0-x31 (x0 is hardwired to 0)
-    registers = [0] * 32
-    
-    # Program counter
-    pc = 0
-    
-    # Data memory (32 locations)
-    memory = [0] * 32
-    
-    # Instruction type decoding
-    opcodes = {
-        0b0110011: 'R',
-        0b0010011: 'I',
-        0b0000011: 'I',  # LOAD
-        0b1100111: 'I',  # JALR
-        0b0100011: 'S',
-        0b1100011: 'B',
-        0b0110111: 'U',  # LUI
-        0b0010111: 'U',  # AUIPC
-        0b1101111: 'J'   # JAL
-    }
-    
-    # funct3 mappings for different instruction types
-    funct3_map = {
-        'R': {
-            0b000: 'add' if 0b0000000 else 'sub',
-            0b010: 'slt',
-            0b101: 'srl',
-            0b110: 'or',
-            0b111: 'and'
-        },
-        'I': {
-            0b000: 'addi',
-            0b010: 'lw',
-            0b000: 'jalr'
-        },
-        'S': {0b010: 'sw'},
-        'B': {
-            0b000: 'beq',
-            0b001: 'bne',
-            0b100: 'blt'
-        },
-        'J': {0b000: 'jal'}
-    }
-    
-    return registers, pc, memory, opcodes, funct3_map
+# Function to convert a number to its binary representation
+def convert_to_binary(num, bit_length):
+    # If he number is negative, convert it to its two's complement representation
+    if num < 0:
+        num += (1 << bit_length)
+    return format(num, f'0{bit_length}b')
 
-def parse_instruction(instruction, opcodes, funct3_map):
-    """Parse a 32-bit RISC-V instruction"""
-    opcode = instruction & 0x7f
-    instr_type = opcodes.get(opcode, None)
-    
-    if not instr_type:
-        raise ValueError(f"Unknown opcode: {opcode:07b}")
-    
-    rd = (instruction >> 7) & 0x1f
-    funct3 = (instruction >> 12) & 0x7
-    rs1 = (instruction >> 15) & 0x1f
-    rs2 = (instruction >> 20) & 0x1f
-    funct7 = (instruction >> 25) & 0x7f
-    
-    # Get instruction name
-    instr_name = funct3_map[instr_type].get(funct3, None)
-    if not instr_name:
-        raise ValueError(f"Unknown funct3: {funct3:03b} for type {instr_type}")
-    
-    # Handle different instruction types
-    if instr_type == 'R':
-        return {
-            'type': 'R',
-            'name': instr_name,
-            'rd': rd,
-            'rs1': rs1,
-            'rs2': rs2,
-            'funct7': funct7
-        }
-    elif instr_type in ['I', 'S', 'B', 'J']:
-        # Immediate handling for different instruction types
-        if instr_type == 'I':
-            imm = (instruction >> 20) & 0xfff
-            imm = sign_extend(imm, 12)
-        elif instr_type == 'S':
-            imm = ((instruction >> 25) & 0x7f) << 5
-            imm |= ((instruction >> 7) & 0x1f)
-            imm = sign_extend(imm, 12)
-        elif instr_type == 'B':
-            imm = ((instruction >> 31) & 0x1) << 12
-            imm |= ((instruction >> 25) & 0x3f) << 5
-            imm |= ((instruction >> 8) & 0xf) << 1
-            imm |= ((instruction >> 7) & 0x1) << 11
-            imm = sign_extend(imm, 13)
-        elif instr_type == 'J':
-            imm = ((instruction >> 31) & 0x1) << 20
-            imm |= ((instruction >> 21) & 0x3ff) << 1
-            imm |= ((instruction >> 20) & 0x1) << 11
-            imm |= ((instruction >> 12) & 0xff) << 12
-            imm = sign_extend(imm, 21)
-        
-        return {
-            'type': instr_type,
-            'name': instr_name,
-            'rd': rd,
-            'rs1': rs1,
-            'rs2': rs2 if instr_type in ['S', 'B'] else None,
-            'imm': imm
-        }
+# Defining the memory spaces for data
+data_mem = {}
+for addr in range(0, 128, 4):
+    data_mem[f'0x{(0x00010000 + addr):08X}'] = 0
 
-def execute_instruction(instr, registers, pc, memory):
-    """Execute a parsed instruction and return updated pc"""
-    if instr['name'] == 'add':
-        registers[instr['rd']] = registers[instr['rs1']] + registers[instr['rs2']]
-        pc += 4
-    elif instr['name'] == 'sub':
-        registers[instr['rd']] = registers[instr['rs1']] - registers[instr['rs2']]
-        pc += 4
-    elif instr['name'] == 'slt':
-        registers[instr['rd']] = 1 if registers[instr['rs1']] < registers[instr['rs2']] else 0
-        pc += 4
-    elif instr['name'] == 'srl':
-        registers[instr['rd']] = registers[instr['rs1']] >> (registers[instr['rs2']] & 0x1f)
-        pc += 4
-    elif instr['name'] == 'or':
-        registers[instr['rd']] = registers[instr['rs1']] | registers[instr['rs2']]
-        pc += 4
-    elif instr['name'] == 'and':
-        registers[instr['rd']] = registers[instr['rs1']] & registers[instr['rs2']]
-        pc += 4
-    elif instr['name'] == 'addi':
-        registers[instr['rd']] = registers[instr['rs1']] + instr['imm']
-        pc += 4
-    elif instr['name'] == 'lw':
-        addr = registers[instr['rs1']] + instr['imm']
-        if 0 <= addr // 4 < len(memory):
-            registers[instr['rd']] = memory[addr // 4]
-        else:
-            raise ValueError(f"Memory access out of bounds: {addr}")
-        pc += 4
-    elif instr['name'] == 'sw':
-        addr = registers[instr['rs1']] + instr['imm']
-        if 0 <= addr // 4 < len(memory):
-            memory[addr // 4] = registers[instr['rs2']]
-        else:
-            raise ValueError(f"Memory access out of bounds: {addr}")
-        pc += 4
-    elif instr['name'] == 'beq':
-        if registers[instr['rs1']] == registers[instr['rs2']]:
-            pc += instr['imm']
-        else:
-            pc += 4
-    elif instr['name'] == 'bne':
-        if registers[instr['rs1']] != registers[instr['rs2']]:
-            pc += instr['imm']
-        else:
-            pc += 4
-    elif instr['name'] == 'blt':
-        if registers[instr['rs1']] < registers[instr['rs2']]:
-            pc += instr['imm']
-        else:
-            pc += 4
-    elif instr['name'] == 'jal':
-        registers[instr['rd']] = pc + 4
-        pc += instr['imm']
-    elif instr['name'] == 'jalr':
-        registers[instr['rd']] = pc + 4
-        pc = (registers[instr['rs1']] + instr['imm']) & ~1  # Clear LSB
+# Defining the memory spaces for stack
+stack_mem = {}
+for addr in range(0, 128, 4):
+    stack_mem[f'0x{(0x00000100 + addr):08X}'] = 0
+
+# Assigning input and output file names from command line arguments
+input_file = sys.argv[1]
+output_file = sys.argv[2]
+
+# Opening the input file for reading the data inside it by splitting it on the basis of next line
+with open(input_file, "r") as f_in:
+    lines = f_in.read().split("\n")
+
+# Opening the output file for writing the data inside it
+file_oi = open(output_file, "w")
+
+# Opening the trace file for writing the data inside it
+trace_file = "trace.txt" if len(sys.argv) < 4 else sys.argv[3]
+file_trace = open(trace_file, "w")
+
+# Initializing the program counter and count for iteration
+PC = 0
+count = 0
+
+# Function to convert binary address to hexadecimal format
+def binary_to_hexa(binary_val):
+    int_val = int(binary_val, 2)
+    return f'0x{int_val:08X}'
+
+# Function to process the immediate value from the instruction
+def process_imm(bin_imm):
+    if bin_imm[0] == '1':
+        inverted = ''.join('1' if bit == '0' else '0' for bit in bin_imm)
+        pos_val = int(inverted, 2) + 1
+        return -pos_val
     else:
-        raise ValueError(f"Unknown instruction: {instr['name']}")
-    
-    return pc
+        return int(bin_imm, 2)
 
-def run_simulation(binary_file, output_file):
-    """Run simulation from binary file and write output"""
-    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+# Function to format the register values for output presentation
+def form_reg(reg_values):
+    form_val = []
 
-    registers, pc, memory, opcodes, funct3_map = initialize_simulator()
+    # Iterating through the register values and converting them to binary representation
+    for val in reg_values:
+        if val < 0:
+            val_32bit = (1 << 32) + val
+            binary_rep = bin(val_32bit)[2:].zfill(32)
+        else:
+            binary_rep = bin(val)[2:].zfill(32)
+        form_val.append('0b' + binary_rep)
+    return form_val
+
+# Reading the instructions from the input file and storing them in instruction memory
+instr_mem = {}
+for i, line in enumerate(lines):
+    if line.strip():
+        instr_mem[i*4] = line.strip()
+
+# Loop to execute the instructions
+while PC < len(lines) * 4:
+    count += 1
+
+    # If the count exceeds 100, break the loop to prevent infinite execution
+    if count > 100:
+        break
+
+    curr_inst = instr_mem.get(PC, "00000000000000000000000001100011")
     
-    with open(binary_file, 'r') as f:
-        instructions = [line.strip() for line in f if line.strip()]
-    
-    with open(output_file, 'w') as f_out:
-        while pc // 4 < len(instructions):
-            # Get current instruction
-            try:
-                instruction = int(instructions[pc // 4], 2)
-            except:
-                raise ValueError(f"Invalid binary instruction at PC {pc}: {instructions[pc // 4]}")
-            
-            # Parse and execute
-            parsed_instr = parse_instruction(instruction, opcodes, funct3_map)
-            pc = execute_instruction(parsed_instr, registers, pc, memory)
-            
-            # Virtual halt instruction (beq zero,zero,0)
-            if (parsed_instr['name'] == 'beq' and 
-                parsed_instr['rs1'] == 0 and 
-                parsed_instr['rs2'] == 0 and 
-                parsed_instr['imm'] == 0):
-                break
-            
-            # Write register state to output
-            f_out.write(f"{pc:032b} ")
-            f_out.write(" ".join(f"{reg:032b}" for reg in registers))
-            f_out.write("\n")
+    # If the instruction is empty, break the loop and write the values to the output file
+    if curr_inst == "00000000000000000000000001100011":
+        registers["00000"] = 0
         
-        # After halt, write memory contents
-        for i in range(len(memory)):
-            f_out.write(f"{memory[i]:032b}\n")
-
-def main():
-    if len(sys.argv) < 3:
-        print("Usage: python simulator.py <input_binary_file> <output_trace_file>")
-        sys.exit(1)
-    
-    input_file = sys.argv[1]
-    output_file = sys.argv[2]
-
-    run_simulation(sys.argv[1], sys.argv[2])
-
-if __name__ == "__main__":
-    main()
+        reg_values = [PC]
+        for reg_key in sorted(registers.keys()):
+            reg_values.append(registers[reg_key])
+        form_val = form_reg(reg_values)
+        file_oi.write(" ".join(form_val) + "\n")
+        
+        reg_values = [PC]
+        for reg_key in sorted(registers.keys()):
+            reg_values.append(registers[reg_key])
+        file_trace.write(" ".join(str(val) for val in reg_values) + "\n")
+        
+        break
+        
