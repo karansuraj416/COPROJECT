@@ -197,3 +197,80 @@ while PC < len(lines) * 4:
                 
         PC += 4
         registers["00000"] = 0  
+    # Check if the instruction is a B-type instruction
+    elif curr_inst[-7:] in op_code_b.values():
+        opcode = curr_inst[-7:]
+        funct3 = curr_inst[-15:-12]
+        rs1 = curr_inst[-20:-15]
+        rs2 = curr_inst[-25:-20]
+        
+        imm = curr_inst[-32] + curr_inst[-8] + curr_inst[-31:-25] + curr_inst[-12:-8] + '0'
+        imm_value = process_imm(imm)
+        
+        if opcode == "1100011":
+            if funct3 == '000':
+                if registers[rs1] == registers[rs2]:
+                    PC += imm_value
+                else:
+                    PC += 4
+            elif funct3 == '001':
+                if registers[rs1] != registers[rs2]:
+                    PC += imm_value
+                else:
+                    PC += 4
+        
+        if (opcode == "1100011" and funct3 == '000' and 
+            rs1 == "00000" and rs2 == "00000" and imm_value == 0):
+            pass
+            
+        registers["00000"] = 0
+
+    # Check if the instruction is a J-type instruction
+    elif curr_inst[-7:] in op_code_j.values():
+        opcode = curr_inst[-7:]
+        rd = curr_inst[-12:-7]
+        
+        imm = curr_inst[-32] + curr_inst[-20:-12] + curr_inst[-21] + curr_inst[-31:-21] + '0'
+        imm_value = process_imm(imm)
+        
+        # Performing the jump operation based on the opcode
+        if opcode == "1101111":
+            return_addr = PC + 4
+            PC += imm_value
+            registers[rd] = return_addr
+            
+        registers["00000"] = 0
+    
+    else:
+        PC += 4
+    
+    # Writing the current state of registers to the output file and trace file
+    reg_values = [PC]
+    for reg_key in sorted(registers.keys()):
+        reg_values.append(registers[reg_key])
+    form_val = form_reg(reg_values)
+    file_oi.write(" ".join(form_val) + "\n")
+    
+    reg_values = [PC]
+    for reg_key in sorted(registers.keys()):
+        reg_values.append(registers[reg_key])
+    file_trace.write(" ".join(str(val) for val in reg_values) + "\n")
+
+# Writing the final state of data and stack memory to the output file and trace file
+for addr in sorted(data_mem.keys()):
+    binary_val = convert_to_binary(data_mem[addr], 32)
+    file_oi.write(f'{addr}:0b{binary_val}\n')
+
+for addr in sorted(data_mem.keys()):
+    file_trace.write(f'{addr}:{data_mem[addr]}\n')
+
+# for addr in sorted(stack_mem.keys()):
+#     binary_val = convert_to_binary(stack_mem[addr], 32)
+#     file_oi.write(f'{addr}:0b{binary_val}\n')
+
+# for addr in sorted(stack_mem.keys()):
+#     file_trace.write(f'{addr}:{stack_mem[addr]}\n')
+
+# Closing the output and trace files
+file_oi.close()
+file_trace.close()
