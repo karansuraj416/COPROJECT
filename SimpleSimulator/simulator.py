@@ -107,4 +107,93 @@ while PC < len(lines) * 4:
         file_trace.write(" ".join(str(val) for val in reg_values) + "\n")
         
         break
+      
+    # If the instruction is not empty, check if it is a r-type instruction
+    elif curr_inst[-7:] == "0110011":
+        opcode = curr_inst[-7:]
         
+        # Extracting the funct3 and funct7 fields from the instruction
+        funct3 = curr_inst[-15:-12]
+        funct7 = curr_inst[-32:-25]
+
+        # Extracting the source and destination registers from the instruction
+        rs1 = curr_inst[-20:-15]
+        rs2 = curr_inst[-25:-20]
+        rd = curr_inst[-12:-7]
+
+        # Performing the operation based on the funct3 and funct7 values
+        if funct3 == '000' and funct7 == '0000000':
+            registers[rd] = registers[rs1] + registers[rs2]
+        elif funct3 == '000' and funct7 == '0100000':
+            registers[rd] = registers[rs1] - registers[rs2]
+        elif funct3 == '010' and funct7 == '0000000':
+            registers[rd] = 1 if registers[rs1] < registers[rs2] else 0
+        elif funct3 == '101' and funct7 == '0000000':
+            registers[rd] = registers[rs1] >> registers[rs2]
+        elif funct3 == '111' and funct7 == '0000000':
+            registers[rd] = registers[rs1] & registers[rs2]
+        elif funct3 == '110' and funct7 == '0000000':
+            registers[rd] = registers[rs1] | registers[rs2]
+            
+        PC += 4
+        registers["00000"] = 0
+
+    # Check if the instruction is an I-type instruction
+    elif curr_inst[-7:] in op_code_i.values():
+        opcode = curr_inst[-7:]
+        funct3 = curr_inst[-15:-12]
+        rs1 = curr_inst[-20:-15]
+        rd = curr_inst[-12:-7]
+        imm = curr_inst[-32:-20]
+        imm_value = process_imm(imm)
+
+        # Performing the operation based on the opcode and funct3 values
+        if opcode == "0000011":
+            addr_val = registers[rs1] + imm_value
+            address = binary_to_hexa(bin(addr_val)[2:].zfill(32))
+            
+            if address in data_mem:
+                registers[rd] = data_mem[address]
+            elif address in stack_mem:
+                registers[rd] = stack_mem[address]
+            else:
+                print(f"Invalid memory address to load from: {address}")
+                break
+            PC += 4
+            
+        elif opcode == "0010011":
+            if funct3 == '000':
+                registers[rd] = registers[rs1] + imm_value
+            PC += 4
+            
+        elif opcode == "1100111" and funct3 == '000':
+            return_addr = PC + 4
+            PC = (registers[rs1] + imm_value) & ~1
+            registers[rd] = return_addr
+            
+        registers["00000"] = 0
+
+    # Check if the instruction is a S-type instruction
+    elif curr_inst[-7:] in op_code_s.values():
+        opcode = curr_inst[-7:]
+        funct3 = curr_inst[-15:-12]
+        rs2 = curr_inst[-25:-20]
+        rs1 = curr_inst[-20:-15]
+        imm = curr_inst[-32:-25] + curr_inst[-12:-7]
+        imm_value = process_imm(imm)
+
+        # Performing the store operation based on the opcode and the particular registers
+        if opcode == "0100011":
+            addr_val = registers[rs1] + imm_value
+            address = binary_to_hexa(bin(addr_val)[2:].zfill(32))
+            
+            if address in data_mem:
+                data_mem[address] = registers[rs2]
+            elif address in stack_mem:
+                stack_mem[address] = registers[rs2]
+            else:
+                print(f"Invalid memory address to store at: {address}")
+                break
+                
+        PC += 4
+        registers["00000"] = 0  
